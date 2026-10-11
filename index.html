@@ -1,13 +1,129 @@
+
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>OUMI TECH WiFi</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OUMI TECH - Scanner WiFi</title>
+<style>
+body {
+  margin: 0;
+  padding: 20px;
+  background: #07111f;
+  color: white;
+  font-family: Arial, sans-serif;
+  text-align: center;
+}
+h1 { color: #36d6c4; }
+p { color: #cbd5e1; }
+button {
+  background: #36d6c4;
+  color: #07111f;
+  border: 0;
+  padding: 14px 20px;
+  border-radius: 10px;
+  font-size: 16px;
+  font-weight: bold;
+  margin: 8px;
+}
+#camera {
+  width: 100%;
+  max-width: 420px;
+  border-radius: 12px;
+  background: #000;
+}
+#result {
+  overflow-wrap: anywhere;
+  margin: 15px 0;
+}
+input {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 420px;
+  padding: 12px;
+  border-radius: 8px;
+  margin: 8px 0;
+}
+</style>
 </head>
-<body style="background:#07111f;color:white;font-family:Arial;text-align:center;padding:40px">
-  <h1 style="color:#36d6c4">OUMI TECH</h1>
-  <p>Page HTTPS du scanner QR</p>
-  <p>Publication en cours de test.</p>
+<body>
+
+<h1>OUMI TECH</h1>
+<p>Scanner un ticket Wi-Fi</p>
+
+<video id="camera" autoplay playsinline muted></video>
+<div>
+  <button id="start">Démarrer la caméra</button>
+  <button id="stop">Arrêter</button>
+</div>
+
+<p id="status">Appuyez sur « Démarrer la caméra ».</p>
+<div id="result"></div>
+
+<label for="code">Code du ticket détecté :</label><br>
+<input id="code" type="text" placeholder="Le code apparaîtra ici">
+
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+<script>
+const video = document.getElementById("camera");
+const statusText = document.getElementById("status");
+const codeInput = document.getElementById("code");
+let stream = null;
+let timer = null;
+let canvas = document.createElement("canvas");
+let ctx = canvas.getContext("2d", { willReadFrequently: true });
+
+document.getElementById("start").addEventListener("click", async () => {
+  try {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      throw new Error("Caméra indisponible. Ouvrez cette page en HTTPS dans Chrome.");
+    }
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: "environment" } },
+      audio: false
+    });
+    video.srcObject = stream;
+    await video.play();
+    statusText.textContent = "Caméra active. Présentez le QR code devant l’objectif.";
+    clearInterval(timer);
+    timer = setInterval(scanFrame, 250);
+  } catch (e) {
+    statusText.textContent = "Impossible d'ouvrir la caméra : " + e.message;
+  }
+});
+
+function scanFrame() {
+  if (!stream || video.readyState !== video.HAVE_ENOUGH_DATA) return;
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+  const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  if (typeof jsQR !== "function") {
+    statusText.textContent = "Le lecteur QR n'a pas pu être chargé. Vérifiez Internet.";
+    return;
+  }
+  const result = jsQR(image.data, image.width, image.height);
+  if (result) {
+    codeInput.value = result.data;
+    statusText.textContent = "QR code détecté !";
+    stopCamera();
+  }
+}
+
+function stopCamera() {
+  clearInterval(timer);
+  timer = null;
+  if (stream) {
+    stream.getTracks().forEach(track => track.stop());
+    stream = null;
+  }
+  video.srcObject = null;
+}
+
+document.getElementById("stop").addEventListener("click", () => {
+  stopCamera();
+  statusText.textContent = "Caméra arrêtée.";
+});
+</script>
 </body>
 </html>
