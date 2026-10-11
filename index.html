@@ -1,12 +1,14 @@
-
+```html
 <!DOCTYPE html>
 <html lang="fr">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>OUMI TECH - Scanner WiFi</title>
+  <title>OUMI TECH - Scanner QR Wi-Fi</title>
 
   <style>
+    * { box-sizing: border-box; }
+
     body {
       margin: 0;
       padding: 20px;
@@ -23,38 +25,35 @@
       background: #36d6c4;
       color: #07111f;
       border: 0;
-      padding: 14px 20px;
+      padding: 14px 18px;
       border-radius: 10px;
       font-size: 16px;
       font-weight: bold;
-      margin: 8px;
+      margin: 8px 4px;
       cursor: pointer;
     }
 
     #camera {
       width: 100%;
       max-width: 420px;
-      border-radius: 12px;
       background: #000;
+      border-radius: 12px;
     }
 
     #status {
       overflow-wrap: anywhere;
-      margin: 15px 0;
+      line-height: 1.5;
     }
 
-    input {
-      box-sizing: border-box;
+    #code {
       width: 100%;
       max-width: 420px;
       padding: 12px;
       border-radius: 8px;
-      margin: 8px 0;
+      font-size: 16px;
     }
 
-    #send {
-      display: none;
-    }
+    #send { display: none; }
   </style>
 </head>
 
@@ -69,18 +68,18 @@
     <button id="stop" type="button">Arrêter</button>
   </div>
 
-  <p id="status">Appuyez sur « Démarrer la caméra ».</p>
+  <p id="status" role="status">
+    Appuyez sur « Démarrer la caméra ».
+  </p>
 
-  <label for="code">Code du ticket détecté :</label><br>
-  <input id="code" type="text"
-         placeholder="Le code apparaîtra ici"
-         autocomplete="off">
+  <label for="code">Code du ticket détecté :</label>
+  <p>
+    <input id="code" type="text"
+           placeholder="Le code apparaîtra ici"
+           autocomplete="off">
+  </p>
 
-  <div>
-    <button id="send" type="button">
-      Transmettre au portail
-    </button>
-  </div>
+  <button id="send" type="button">Transmettre au portail</button>
 
   <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
 
@@ -99,19 +98,43 @@
       willReadFrequently: true
     });
 
-    document.getElementById("start").addEventListener("click", async () => {
-      try {
-        if (!navigator.mediaDevices ||
-            !navigator.mediaDevices.getUserMedia) {
-          throw new Error(
-            "Caméra indisponible. Ouvrez cette page en HTTPS dans Chrome."
-          );
-        }
+    function stopCamera() {
+      if (timer !== null) {
+        clearInterval(timer);
+        timer = null;
+      }
 
-        stopCamera();
+      if (stream !== null) {
+        stream.getTracks().forEach(track => track.stop());
+        stream = null;
+      }
+
+      video.srcObject = null;
+    }
+
+    async function startCamera() {
+      stopCamera();
+
+      if (!window.isSecureContext) {
+        statusText.textContent =
+          "Erreur : ouvrez le scanner avec son adresse HTTPS dans Chrome.";
+        return;
+      }
+
+      if (!navigator.mediaDevices ||
+          !navigator.mediaDevices.getUserMedia) {
+        statusText.textContent =
+          "Caméra indisponible dans ce navigateur. Ouvrez le site HTTPS dans Chrome.";
+        return;
+      }
+
+      try {
+        statusText.textContent = "Demande d’accès à la caméra…";
 
         stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { ideal: "environment" } },
+          video: {
+            facingMode: { ideal: "environment" }
+          },
           audio: false
         });
 
@@ -121,21 +144,46 @@
         statusText.textContent =
           "Caméra active. Présentez le QR code devant l’objectif.";
 
-        timer = setInterval(scanFrame, 250);
+        timer = setInterval(scanFrame, 300);
 
       } catch (error) {
-        statusText.textContent =
-          "Impossible d’ouvrir la caméra : " + error.message;
+        let message = error.name || "Erreur inconnue";
+
+        if (error.name === "NotAllowedError" ||
+            error.name === "PermissionDeniedError") {
+          message =
+            "Accès refusé : autorisez la caméra pour ce site dans Chrome, puis rechargez la page.";
+        } else if (error.name === "NotFoundError") {
+          message = "Aucune caméra détectée.";
+        } else if (error.name === "NotReadableError") {
+          message =
+            "La caméra est peut-être utilisée par une autre application. Fermez-la puis réessayez.";
+        } else {
+          message = "Erreur caméra : " + error.name +
+                    (error.message ? " — " + error.message : "");
+        }
+
+        statusText.textContent = message;
+        stopCamera();
       }
-    });
+    }
 
     function scanFrame() {
-      if (!stream || video.readyState !== video.HAVE_ENOUGH_DATA) {
+      if (!stream ||
+          video.readyState !== video.HAVE_ENOUGH_DATA) {
+        return;
+      }
+
+      if (typeof window.jsQR !== "function") {
+        statusText.textContent =
+          "Lecteur QR non chargé. Vérifiez la connexion Internet.";
         return;
       }
 
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
+
+      if (!canvas.width || !canvas.height) return;
 
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
@@ -143,82 +191,61 @@
         0, 0, canvas.width, canvas.height
       );
 
-      if (typeof jsQR !== "function") {
-        statusText.textContent =
-          "Le lecteur QR n’a pas pu être chargé. Vérifiez Internet.";
+      const result = window.jsQR(
+        image.data, image.width, image.height
+      );
+
+      if (!result || !result.data) return;
+
+      const detectedCode = result.data.trim();
+
+      if (!detectedCode || detectedCode.length > 100) {
+        statusText.textContent = "QR invalide ou trop long.";
         return;
       }
 
-      const result = jsQR(
-        image.data,
-        image.width,
-        image.height
-      );
+      lastCode = detectedCode;
+      codeInput.value = detectedCode;
+      sendButton.style.display = "inline-block";
 
-      if (result && result.data) {
-        const detectedCode = result.data.trim();
+      statusText.textContent =
+        "QR détecté. Appuyez sur « Transmettre au portail ».";
 
-        if (!detectedCode || detectedCode.length > 100) {
-          statusText.textContent =
-            "Code QR invalide ou trop long.";
-          return;
-        }
-
-        lastCode = detectedCode;
-        codeInput.value = detectedCode;
-        sendButton.style.display = "inline-block";
-
-        statusText.textContent =
-          "QR détecté. Appuyez sur « Transmettre au portail ».";
-
-        stopCamera();
-      }
-    }
-
-    function stopCamera() {
-      if (timer !== null) {
-        clearInterval(timer);
-        timer = null;
-      }
-
-      if (stream) {
-        stream.getTracks().forEach(track => track.stop());
-        stream = null;
-      }
-
-      video.srcObject = null;
-    }
-
-    document.getElementById("stop").addEventListener("click", () => {
       stopCamera();
-      statusText.textContent = "Caméra arrêtée.";
-    });
+    }
+
+    document.getElementById("start")
+      .addEventListener("click", startCamera);
+
+    document.getElementById("stop")
+      .addEventListener("click", () => {
+        stopCamera();
+        statusText.textContent = "Caméra arrêtée.";
+      });
 
     sendButton.addEventListener("click", () => {
-      const code = lastCode.trim();
+      const code = codeInput.value.trim();
 
       if (!code || code.length > 100) {
-        statusText.textContent = "Aucun code QR valide à transmettre.";
+        statusText.textContent = "Code invalide.";
         return;
       }
 
       if (!window.opener || window.opener.closed) {
         statusText.textContent =
-          "Le portail n’a pas été retrouvé. Ouvrez le scanner depuis le portail.";
+          "Portail introuvable. Ouvrez le scanner depuis le portail captif.";
         return;
       }
 
       window.opener.postMessage(
-        {
-          type: "OUMI_QR_TICKET",
-          code: code
-        },
+        { type: "OUMI_QR_TICKET", code: code },
         "http://wifi.zone"
       );
 
       statusText.textContent =
-        "Code transmis. Revenez à la page du portail pour vérifier les champs.";
+        "Code transmis. Revenez au portail captif.";
     });
   </script>
 </body>
 </html>
+```
